@@ -1,0 +1,548 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Drag & Drop → GitHub</title>
+  <style>
+    :root {
+      --bg: #0f1419;
+      --surface: #1a2332;
+      --border: #2d3a4f;
+      --accent: #3b82f6;
+      --accent-hover: #2563eb;
+      --text: #e2e8f0;
+      --muted: #94a3b8;
+      --success: #22c55e;
+      --error: #ef4444;
+      --warning: #f59e0b;
+    }
+
+    * {
+      box-sizing: border-box;
+      margin: 0;
+      padding: 0;
+    }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+      background: var(--bg);
+      color: var(--text);
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      padding: 2rem 1rem;
+      line-height: 1.5;
+    }
+
+    h1 {
+      font-size: 1.75rem;
+      font-weight: 700;
+      margin-bottom: 0.5rem;
+      background: linear-gradient(135deg, #60a5fa, #a78bfa);
+      -webkit-background-clip: text;
+      -webkit-text-fill-color: transparent;
+      background-clip: text;
+    }
+
+    .subtitle {
+      color: var(--muted);
+      margin-bottom: 2rem;
+      text-align: center;
+      max-width: 480px;
+    }
+
+    .container {
+      width: 100%;
+      max-width: 560px;
+      display: flex;
+      flex-direction: column;
+      gap: 1.25rem;
+    }
+
+    .card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: 12px;
+      padding: 1.5rem;
+    }
+
+    label {
+      display: block;
+      font-size: 0.875rem;
+      font-weight: 500;
+      color: var(--muted);
+      margin-bottom: 0.4rem;
+    }
+
+    input[type="text"],
+    input[type="password"] {
+      width: 100%;
+      padding: 0.75rem 1rem;
+      background: var(--bg);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      color: var(--text);
+      font-size: 0.95rem;
+      transition: border-color 0.15s;
+    }
+
+    input:focus {
+      outline: none;
+      border-color: var(--accent);
+    }
+
+    .drop-zone {
+      border: 2px dashed var(--border);
+      border-radius: 12px;
+      padding: 2.5rem 1.5rem;
+      text-align: center;
+      cursor: pointer;
+      transition: all 0.2s;
+      background: var(--bg);
+      position: relative;
+    }
+
+    .drop-zone:hover,
+    .drop-zone.drag-over {
+      border-color: var(--accent);
+      background: rgba(59, 130, 246, 0.08);
+    }
+
+    .drop-zone.has-files {
+      border-style: solid;
+      border-color: var(--success);
+    }
+
+    .drop-icon {
+      font-size: 2.5rem;
+      margin-bottom: 0.75rem;
+      opacity: 0.7;
+    }
+
+    .drop-text {
+      font-weight: 500;
+      margin-bottom: 0.25rem;
+    }
+
+    .drop-hint {
+      font-size: 0.8rem;
+      color: var(--muted);
+    }
+
+    #file-input {
+      display: none;
+    }
+
+    .file-list {
+      max-height: 180px;
+      overflow-y: auto;
+      margin-top: 1rem;
+      font-size: 0.8rem;
+      text-align: left;
+      color: var(--muted);
+    }
+
+    .file-list div {
+      padding: 0.2rem 0;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .file-count {
+      margin-top: 0.75rem;
+      font-size: 0.85rem;
+      color: var(--success);
+      font-weight: 500;
+    }
+
+    button {
+      width: 100%;
+      padding: 0.9rem 1.5rem;
+      background: var(--accent);
+      color: white;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.15s, transform 0.1s;
+    }
+
+    button:hover:not(:disabled) {
+      background: var(--accent-hover);
+    }
+
+    button:active:not(:disabled) {
+      transform: scale(0.98);
+    }
+
+    button:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
+    }
+
+    .status {
+      margin-top: 1rem;
+      padding: 0.85rem 1rem;
+      border-radius: 8px;
+      font-size: 0.9rem;
+      display: none;
+    }
+
+    .status.info {
+      display: block;
+      background: rgba(59, 130, 246, 0.15);
+      border: 1px solid rgba(59, 130, 246, 0.3);
+      color: #93c5fd;
+    }
+
+    .status.success {
+      display: block;
+      background: rgba(34, 197, 94, 0.15);
+      border: 1px solid rgba(34, 197, 94, 0.3);
+      color: #86efac;
+    }
+
+    .status.error {
+      display: block;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.3);
+      color: #fca5a5;
+    }
+
+    .progress-bar {
+      height: 6px;
+      background: var(--border);
+      border-radius: 3px;
+      margin-top: 0.75rem;
+      overflow: hidden;
+      display: none;
+    }
+
+    .progress-bar.visible {
+      display: block;
+    }
+
+    .progress-fill {
+      height: 100%;
+      background: var(--accent);
+      width: 0%;
+      transition: width 0.2s;
+    }
+
+    .token-hint {
+      font-size: 0.75rem;
+      color: var(--muted);
+      margin-top: 0.4rem;
+    }
+
+    .token-hint a {
+      color: var(--accent);
+      text-decoration: none;
+    }
+
+    .token-hint a:hover {
+      text-decoration: underline;
+    }
+
+    footer {
+      margin-top: 2.5rem;
+      font-size: 0.8rem;
+      color: var(--muted);
+      text-align: center;
+    }
+  </style>
+</head>
+<body>
+  <h1>Drag & Drop → GitHub</h1>
+  <p class="subtitle">Drop a project folder and push it to a new GitHub repository in one click.</p>
+
+  <div class="container">
+    <!-- Credentials -->
+    <div class="card">
+      <div style="margin-bottom: 1rem;">
+        <label for="username">GitHub Username</label>
+        <input type="text" id="username" placeholder="your-username" autocomplete="username" />
+      </div>
+      <div style="margin-bottom: 1rem;">
+        <label for="repo">Repository Name</label>
+        <input type="text" id="repo" placeholder="my-awesome-project" />
+      </div>
+      <div>
+        <label for="token">Personal Access Token</label>
+        <input type="password" id="token" placeholder="ghp_xxxxxxxxxxxxxxxxxxxx" autocomplete="off" />
+        <p class="token-hint">
+          Needs <code>repo</code> scope.
+          <a href="https://github.com/settings/tokens/new?scopes=repo&description=DragDrop%20Uploader" target="_blank" rel="noopener">
+            Create token →
+          </a>
+        </p>
+      </div>
+    </div>
+
+    <!-- Drop zone -->
+    <div class="card">
+      <div class="drop-zone" id="drop-zone">
+        <div class="drop-icon">📁</div>
+        <div class="drop-text">Drop your project folder here</div>
+        <div class="drop-hint">or click to select files / folder</div>
+        <input type="file" id="file-input" multiple webkitdirectory directory />
+        <div class="file-list" id="file-list"></div>
+        <div class="file-count" id="file-count"></div>
+      </div>
+    </div>
+
+    <!-- Action -->
+    <button id="upload-btn" disabled>Upload to GitHub</button>
+
+    <div class="status" id="status"></div>
+    <div class="progress-bar" id="progress-bar">
+      <div class="progress-fill" id="progress-fill"></div>
+    </div>
+  </div>
+
+  <footer>
+    Runs entirely in your browser. Your token never leaves this page.
+  </footer>
+
+  <script>
+    const dropZone = document.getElementById("drop-zone");
+    const fileInput = document.getElementById("file-input");
+    const fileList = document.getElementById("file-list");
+    const fileCount = document.getElementById("file-count");
+    const uploadBtn = document.getElementById("upload-btn");
+    const statusEl = document.getElementById("status");
+    const progressBar = document.getElementById("progress-bar");
+    const progressFill = document.getElementById("progress-fill");
+
+    let selectedFiles = [];
+
+    // --- Drag & Drop ---
+    dropZone.addEventListener("click", () => fileInput.click());
+
+    dropZone.addEventListener("dragover", (e) => {
+      e.preventDefault();
+      dropZone.classList.add("drag-over");
+    });
+
+    dropZone.addEventListener("dragleave", () => {
+      dropZone.classList.remove("drag-over");
+    });
+
+    dropZone.addEventListener("drop", async (e) => {
+      e.preventDefault();
+      dropZone.classList.remove("drag-over");
+      const items = e.dataTransfer.items;
+      selectedFiles = [];
+
+      if (items) {
+        const entries = [];
+        for (let i = 0; i < items.length; i++) {
+          const entry = items[i].webkitGetAsEntry?.() || items[i].getAsEntry?.();
+          if (entry) entries.push(entry);
+        }
+        if (entries.length) {
+          for (const entry of entries) {
+            await traverseEntry(entry, "");
+          }
+          updateFileList();
+          return;
+        }
+      }
+
+      // Fallback for simple file drops
+      const files = Array.from(e.dataTransfer.files);
+      selectedFiles = files.map((f) => ({ file: f, path: f.name }));
+      updateFileList();
+    });
+
+    fileInput.addEventListener("change", () => {
+      selectedFiles = Array.from(fileInput.files).map((f) => ({
+        file: f,
+        path: f.webkitRelativePath || f.name,
+      }));
+      updateFileList();
+    });
+
+    async function traverseEntry(entry, path) {
+      if (entry.isFile) {
+        const file = await new Promise((resolve, reject) =>
+          entry.file(resolve, reject)
+        );
+        selectedFiles.push({ file, path: path + entry.name });
+      } else if (entry.isDirectory) {
+        const reader = entry.createReader();
+        const readEntries = () =>
+          new Promise((resolve, reject) =>
+            reader.readEntries(resolve, reject)
+          );
+        let entries = await readEntries();
+        while (entries.length) {
+          for (const e of entries) {
+            await traverseEntry(e, path + entry.name + "/");
+          }
+          entries = await readEntries();
+        }
+      }
+    }
+
+    function updateFileList() {
+      if (selectedFiles.length === 0) {
+        fileList.innerHTML = "";
+        fileCount.textContent = "";
+        dropZone.classList.remove("has-files");
+        uploadBtn.disabled = true;
+        return;
+      }
+
+      dropZone.classList.add("has-files");
+      const preview = selectedFiles.slice(0, 12);
+      fileList.innerHTML = preview
+        .map((f) => `<div>${escapeHtml(f.path)}</div>`)
+        .join("");
+      if (selectedFiles.length > 12) {
+        fileList.innerHTML += `<div>… and ${selectedFiles.length - 12} more</div>`;
+      }
+      fileCount.textContent = `${selectedFiles.length} file${selectedFiles.length === 1 ? "" : "s"} ready`;
+      uploadBtn.disabled = false;
+    }
+
+    function escapeHtml(str) {
+      return str
+        .replace(/&/g, "&amp;")
+        .replace(/</g, "&lt;")
+        .replace(/>/g, "&gt;")
+        .replace(/"/g, "&quot;");
+    }
+
+    // --- Upload ---
+    uploadBtn.addEventListener("click", startUpload);
+
+    async function startUpload() {
+      const username = document.getElementById("username").value.trim();
+      const repo = document.getElementById("repo").value.trim();
+      const token = document.getElementById("token").value.trim();
+
+      if (!username || !repo || !token) {
+        showStatus("Please fill in username, repository name, and token.", "error");
+        return;
+      }
+      if (selectedFiles.length === 0) {
+        showStatus("No files selected.", "error");
+        return;
+      }
+
+      uploadBtn.disabled = true;
+      progressBar.classList.add("visible");
+      progressFill.style.width = "0%";
+
+      try {
+        // 1. Create repository
+        showStatus("Creating repository…", "info");
+        await createRepo(username, repo, token);
+
+        // 2. Upload files one by one
+        const total = selectedFiles.length;
+        let done = 0;
+
+        for (const { file, path } of selectedFiles) {
+          // Skip empty directories (GitHub doesn't store them)
+          if (file.size === 0 && path.endsWith("/")) continue;
+
+          showStatus(`Uploading ${path} (${done + 1}/${total})…`, "info");
+          await uploadFile(username, repo, token, path, file);
+          done++;
+          progressFill.style.width = `${Math.round((done / total) * 100)}%`;
+        }
+
+        showStatus(
+          `✅ Done! <a href="https://github.com/${username}/${repo}" target="_blank" style="color:#86efac">View repository</a>`,
+          "success"
+        );
+      } catch (err) {
+        console.error(err);
+        showStatus(`Error: ${err.message}`, "error");
+      } finally {
+        uploadBtn.disabled = false;
+      }
+    }
+
+    async function createRepo(owner, name, token) {
+      const res = await fetch("https://api.github.com/user/repos", {
+        method: "POST",
+        headers: {
+          Authorization: `token ${token}`,
+          Accept: "application/vnd.github+json",
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          name,
+          private: false,
+          auto_init: false, // we will push the files ourselves
+        }),
+      });
+
+      if (res.status === 422) {
+        // Repo already exists – continue (or you could choose to abort)
+        const data = await res.json();
+        if (data.message && data.message.includes("already exists")) {
+          return; // proceed to upload into existing repo
+        }
+      }
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.message || `Failed to create repo (${res.status})`);
+      }
+    }
+
+    async function uploadFile(owner, repo, token, path, file) {
+      // Read file as base64
+      const content = await readAsBase64(file);
+
+      const res = await fetch(
+        `https://api.github.com/repos/${owner}/${repo}/contents/${encodeURIComponent(path)}`,
+        {
+          method: "PUT",
+          headers: {
+            Authorization: `token ${token}`,
+            Accept: "application/vnd.github+json",
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            message: `Add ${path}`,
+            content,
+          }),
+        }
+      );
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        // Ignore "already exists" for re-uploads if you want, or throw
+        throw new Error(data.message || `Failed to upload ${path} (${res.status})`);
+      }
+    }
+
+    function readAsBase64(file) {
+      return new Promise((resolve, reject) => {
+        const reader = new FileReader();
+        reader.onload = () => {
+          // result is data:...;base64,XXXX → strip prefix
+          const base64 = reader.result.split(",")[1];
+          resolve(base64);
+        };
+        reader.onerror = reject;
+        reader.readAsDataURL(file);
+      });
+    }
+
+    function showStatus(html, type) {
+      statusEl.innerHTML = html;
+      statusEl.className = `status ${type}`;
+    }
+  </script>
+</body>
+</html>
