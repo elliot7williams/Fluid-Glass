@@ -1,0 +1,312 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover" />
+<title>Iridescent Liquid Glass Fluid</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --panel: rgba(10, 12, 18, .42);
+    --line: rgba(255,255,255,.13);
+    --text: rgba(255,255,255,.92);
+    --muted: rgba(255,255,255,.58);
+  }
+  * { box-sizing: border-box; }
+  html, body { width: 100%; height: 100%; margin: 0; overflow: hidden; background:#020305; }
+  body { font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif; }
+  #stage { position: fixed; inset: 0; width: 100%; height: 100%; display:block; cursor: crosshair; touch-action:none; }
+  .grain {
+    pointer-events:none; position:fixed; inset:0; opacity:.09; mix-blend-mode:soft-light;
+    background-image:url("data:image/svg+xml,%3Csvg viewBox='0 0 180 180' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.95' numOctaves='3' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='.45'/%3E%3C/svg%3E");
+  }
+  .hud {
+    position:fixed; left:18px; top:18px; width:min(370px,calc(100vw - 36px));
+    background:linear-gradient(180deg,rgba(22,24,34,.56),rgba(7,8,12,.34));
+    border:1px solid var(--line); border-radius:22px; padding:16px;
+    box-shadow:0 20px 80px rgba(0,0,0,.32), inset 0 1px 0 rgba(255,255,255,.08);
+    backdrop-filter: blur(26px) saturate(1.25);
+    -webkit-backdrop-filter: blur(26px) saturate(1.25);
+    user-select:none;
+  }
+  .title { display:flex; align-items:center; justify-content:space-between; gap:12px; margin-bottom:12px; }
+  h1 { font-size:15px; letter-spacing:.01em; margin:0; font-weight:650; }
+  .badge { font-size:10px; color:rgba(255,255,255,.7); border:1px solid rgba(255,255,255,.13); padding:5px 8px; border-radius:999px; background:rgba(255,255,255,.045); }
+  .sub { font-size:11px; color:var(--muted); line-height:1.45; margin:-4px 0 13px; }
+  .grid { display:grid; grid-template-columns: 1fr 1fr; gap:10px 12px; }
+  .control { min-width:0; }
+  label { display:flex; align-items:center; justify-content:space-between; gap:8px; font-size:10px; color:rgba(255,255,255,.68); margin:0 1px 5px; }
+  output { color:rgba(255,255,255,.92); font-variant-numeric:tabular-nums; }
+  input[type=range] { width:100%; accent-color:#9df; height:3px; }
+  .buttons { display:flex; gap:8px; margin-top:13px; }
+  button {
+    appearance:none; border:1px solid rgba(255,255,255,.13); color:rgba(255,255,255,.86);
+    background:rgba(255,255,255,.055); border-radius:12px; padding:9px 11px; font:inherit; font-size:11px;
+    cursor:pointer; transition:.18s ease; flex:1;
+  }
+  button:hover { background:rgba(255,255,255,.10); transform:translateY(-1px); }
+  button:active { transform:translateY(0) scale(.98); }
+  .tip { margin-top:10px; font-size:10px; color:rgba(255,255,255,.38); }
+  .status { position:fixed; right:18px; bottom:18px; font-size:10px; color:rgba(255,255,255,.38); text-shadow:0 1px 8px #000; }
+  @media(max-width:650px){ .hud{left:12px;top:12px;width:calc(100vw - 24px);padding:13px;border-radius:18px}.grid{grid-template-columns:1fr 1fr}.status{display:none}.sub{display:none} }
+</style>
+</head>
+<body>
+<canvas id="stage"></canvas>
+<div class="grain"></div>
+<section class="hud">
+  <div class="title"><h1>Iridescent Fluid / Liquid Glass</h1><span class="badge">WebGL + fluid solver</span></div>
+  <p class="sub">Drag through the scene to inject motion and dye. A pressure-projected fluid field is refracted through animated glass lenses.</p>
+  <div class="grid">
+    <div class="control"><label>Flow <output id="flowV">1.00</output></label><input id="flow" type="range" min="0.25" max="2.2" step="0.01" value="1"></div>
+    <div class="control"><label>Vorticity <output id="vortV">22</output></label><input id="vort" type="range" min="0" max="55" step="1" value="22"></div>
+    <div class="control"><label>Refraction <output id="refractV">0.030</output></label><input id="refract" type="range" min="0" max="0.085" step="0.001" value="0.030"></div>
+    <div class="control"><label>Glass scale <output id="glassV">1.00</output></label><input id="glass" type="range" min="0.45" max="1.7" step="0.01" value="1"></div>
+    <div class="control"><label>Dye decay <output id="decayV">0.997</output></label><input id="decay" type="range" min="0.985" max="1" step="0.001" value="0.997"></div>
+    <div class="control"><label>Chromatic <output id="chromaV">0.006</output></label><input id="chroma" type="range" min="0" max="0.018" step="0.001" value="0.006"></div>
+  </div>
+  <div class="buttons"><button id="burst">Ink burst</button><button id="toggle">Pause</button><button id="clear">Clear</button></div>
+  <div class="tip">Tip: slow circular drags create the most “ink in water” curls.</div>
+</section>
+<div class="status" id="status">loading…</div>
+
+<script>
+(() => {
+'use strict';
+
+// -----------------------------------------------------------------------------
+// Compact stable-fluids style solver (semi-Lagrangian advection + projection)
+// ----------------------------------------------------------------------------
+const fluidCanvas = document.createElement('canvas');
+const fctx = fluidCanvas.getContext('2d', { alpha:false });
+let W=160, H=96, N=W*H;
+let u,v,u0,v0,p,div,dye,dye0;
+let img;
+
+function allocFluid(){
+  N=W*H;
+  u=new Float32Array(N); v=new Float32Array(N); u0=new Float32Array(N); v0=new Float32Array(N);
+  p=new Float32Array(N); div=new Float32Array(N); dye=new Float32Array(N); dye0=new Float32Array(N);
+  fluidCanvas.width=W; fluidCanvas.height=H; img=fctx.createImageData(W,H);
+}
+const id=(x,y)=>x+y*W;
+const clamp=(x,a,b)=>Math.max(a,Math.min(b,x));
+
+function sample(a,x,y){
+  x=clamp(x,.5,W-1.5); y=clamp(y,.5,H-1.5);
+  const x0=x|0,y0=y|0,x1=x0+1,y1=y0+1,tx=x-x0,ty=y-y0;
+  const a00=a[id(x0,y0)],a10=a[id(x1,y0)],a01=a[id(x0,y1)],a11=a[id(x1,y1)];
+  return (a00+(a10-a00)*tx)*(1-ty)+(a01+(a11-a01)*tx)*ty;
+}
+function advect(dst,src,uu,vv,dt,diss){
+  for(let y=1;y<H-1;y++) for(let x=1;x<W-1;x++){
+    const i=id(x,y); dst[i]=sample(src,x-uu[i]*dt,y-vv[i]*dt)*diss;
+  }
+}
+function project(uu,vv,iters=15){
+  div.fill(0); p.fill(0);
+  for(let y=1;y<H-1;y++) for(let x=1;x<W-1;x++){
+    const i=id(x,y); div[i] = -.5*((uu[id(x+1,y)]-uu[id(x-1,y)])+(vv[id(x,y+1)]-vv[id(x,y-1)]));
+  }
+  for(let k=0;k<iters;k++){
+    for(let y=1;y<H-1;y++) for(let x=1;x<W-1;x++){
+      const i=id(x,y); p[i]=(div[i]+p[id(x-1,y)]+p[id(x+1,y)]+p[id(x,y-1)]+p[id(x,y+1)])*.25;
+    }
+  }
+  for(let y=1;y<H-1;y++) for(let x=1;x<W-1;x++){
+    const i=id(x,y); uu[i]-=.5*(p[id(x+1,y)]-p[id(x-1,y)]); vv[i]-=.5*(p[id(x,y+1)]-p[id(x,y-1)]);
+  }
+}
+function vorticityConfinement(dt,eps){
+  // Reuse div as curl magnitude scratch.
+  for(let y=1;y<H-1;y++) for(let x=1;x<W-1;x++){
+    div[id(x,y)] = .5*(v[id(x+1,y)]-v[id(x-1,y)] - u[id(x,y+1)] + u[id(x,y-1)]);
+  }
+  for(let y=2;y<H-2;y++) for(let x=2;x<W-2;x++){
+    const i=id(x,y), c=div[i];
+    let nx=Math.abs(div[id(x+1,y)])-Math.abs(div[id(x-1,y)]);
+    let ny=Math.abs(div[id(x,y+1)])-Math.abs(div[id(x,y-1)]);
+    const l=Math.hypot(nx,ny)+1e-5; nx/=l; ny/=l;
+    u[i] += ny*c*eps*dt; v[i] -= nx*c*eps*dt;
+  }
+}
+function stepFluid(dt){
+  const flow=+controls.flow.value, decay=+controls.decay.value, vort=+controls.vort.value;
+  dt = clamp(dt*60, .3, 1.6) * flow;
+  vorticityConfinement(dt*.055,vort);
+  project(u,v,14);
+  u0.set(u); v0.set(v);
+  advect(u,u0,u0,v0,dt*.42,.9993); advect(v,v0,u0,v0,dt*.42,.9993);
+  project(u,v,12);
+  dye0.set(dye); advect(dye,dye0,u,v,dt*.40,decay);
+}
+function splat(nx,ny,dx,dy,amount=1,radius=9){
+  const cx=nx*W, cy=(1-ny)*H, rr=radius*radius;
+  for(let y=Math.max(1,(cy-radius)|0); y<Math.min(H-1,cy+radius); y++){
+    for(let x=Math.max(1,(cx-radius)|0); x<Math.min(W-1,cx+radius); x++){
+      const qx=x-cx,qy=y-cy,d2=qx*qx+qy*qy;
+      if(d2<rr){
+        const w=Math.exp(-d2/(rr*.25)),i=id(x,y);
+        u[i]+=dx*W*.065*w; v[i]-=dy*H*.065*w;
+        dye[i]=Math.min(3.5,dye[i]+amount*w);
+      }
+    }
+  }
+}
+function renderFluid(time){
+  const d=img.data;
+  for(let y=0;y<H;y++) for(let x=0;x<W;x++){
+    const i=id(x,y), z=Math.max(0,dye[i]);
+    const vel=Math.hypot(u[i],v[i]);
+    const phase = time*.00016 + x/W*.7 - y/H*.28 + z*.22 + vel*.014;
+    // Iridescent dark jade / violet palette, driven by the advected density.
+    const a=.5+.5*Math.sin(phase*6.283), b=.5+.5*Math.sin(phase*6.283+2.2), c=.5+.5*Math.sin(phase*6.283+4.2);
+    const density=1-Math.exp(-z*1.28);
+    const wispy=Math.pow(density,.78);
+    const base=3 + 8*(1-density);
+    const j=i*4;
+    d[j]   = clamp(base + wispy*(18 + 58*a + 18*c),0,255);
+    d[j+1] = clamp(base + wispy*(32 + 118*b + 30*a),0,255);
+    d[j+2] = clamp(base + wispy*(30 + 120*c + 72*a),0,255);
+    d[j+3] = 255;
+  }
+  fctx.putImageData(img,0,0);
+}
+
+// -----------------------------------------------------------------------------
+// WebGL post process: animated lens SDF + pseudo-normal refraction + dispersion
+// ----------------------------------------------------------------------------
+const canvas=document.getElementById('stage');
+const gl=canvas.getContext('webgl2',{antialias:false,alpha:false,premultipliedAlpha:false});
+if(!gl){ document.body.innerHTML='<div style="padding:30px;color:white">WebGL 2 is required for this demo.</div>'; return; }
+const VS=`#version 300 es
+precision highp float;
+out vec2 uv;
+void main(){
+  vec2 p=vec2((gl_VertexID<<1)&2, gl_VertexID&2);
+  uv=p; gl_Position=vec4(p*2.0-1.0,0,1);
+}`;
+const FS=`#version 300 es
+precision highp float;
+in vec2 uv; out vec4 frag;
+uniform sampler2D src;
+uniform vec2 res;
+uniform float time;
+uniform float refractAmt;
+uniform float glassScale;
+uniform float chroma;
+
+float sdCircle(vec2 p, float r){return length(p)-r;}
+float smin(float a,float b,float k){float h=max(k-abs(a-b),0.0)/k;return min(a,b)-h*h*h*k*(1.0/6.0);}
+float lensField(vec2 p){
+  float t=time*.22;
+  p.x*=res.x/res.y;
+  float s=glassScale;
+  vec2 c1=vec2(.42*sin(t*.73), .25*cos(t*.91));
+  vec2 c2=vec2(-.38*cos(t*.51+1.3), .28*sin(t*.67));
+  vec2 c3=vec2(.18*cos(t*.83+2.0), -.38*sin(t*.47));
+  float d=sdCircle(p-c1,.48*s);
+  d=smin(d,sdCircle(p-c2,.36*s),.24*s);
+  d=smin(d,sdCircle(p-c3,.31*s),.19*s);
+  return d;
+}
+vec3 tex(vec2 q){ return texture(src,clamp(q,vec2(.001),vec2(.999))).rgb; }
+void main(){
+  vec2 q=uv;
+  vec2 px=1.0/res;
+  float lumL=dot(tex(q-vec2(px.x*2.0,0)),vec3(.2126,.7152,.0722));
+  float lumR=dot(tex(q+vec2(px.x*2.0,0)),vec3(.2126,.7152,.0722));
+  float lumD=dot(tex(q-vec2(0,px.y*2.0)),vec3(.2126,.7152,.0722));
+  float lumU=dot(tex(q+vec2(0,px.y*2.0)),vec3(.2126,.7152,.0722));
+  vec2 fluidN=vec2(lumR-lumL,lumU-lumD);
+
+  vec2 centered=(q-.5)*2.0;
+  float d=lensField(centered);
+  float e=.004;
+  vec2 lensN=normalize(vec2(lensField(centered+vec2(e,0))-lensField(centered-vec2(e,0)), lensField(centered+vec2(0,e))-lensField(centered-vec2(0,e)))+1e-5);
+  float inside=1.0-smoothstep(-.012,.035,d);
+  float rim=1.0-smoothstep(.0,.055,abs(d));
+  float bulge=inside*smoothstep(-.52,.02,d);
+  vec2 warp=(fluidN*1.15 + lensN*(.40+.60*bulge))*refractAmt*inside;
+
+  float ca=chroma*inside*(.35+.65*rim);
+  vec3 col;
+  col.r=tex(q+warp*(1.0+ca*4.0)+lensN*ca).r;
+  col.g=tex(q+warp).g;
+  col.b=tex(q+warp*(1.0-ca*4.0)-lensN*ca).b;
+
+  // dark atmospheric background outside the glass
+  vec3 raw=tex(q);
+  col=mix(raw,col,inside*.98);
+  float fres=pow(clamp(1.0-abs(dot(normalize(vec3(lensN,.72)),vec3(0,0,1))),0.0,1.0),2.0);
+  float highlight=rim*(.35+.65*max(0.0,dot(normalize(lensN),normalize(vec2(-.7,.4)))));
+  col += inside*vec3(.018,.026,.032) + highlight*vec3(.28,.36,.42) + fres*rim*.18;
+  col *= 1.0 - .17*length(q-.5);
+  col = pow(max(col,0.0),vec3(.92));
+  frag=vec4(col,1);
+}`;
+function shader(type,src){ const s=gl.createShader(type); gl.shaderSource(s,src); gl.compileShader(s); if(!gl.getShaderParameter(s,gl.COMPILE_STATUS)) throw new Error(gl.getShaderInfoLog(s)); return s; }
+const prog=gl.createProgram(); gl.attachShader(prog,shader(gl.VERTEX_SHADER,VS)); gl.attachShader(prog,shader(gl.FRAGMENT_SHADER,FS)); gl.linkProgram(prog);
+if(!gl.getProgramParameter(prog,gl.LINK_STATUS)) throw new Error(gl.getProgramInfoLog(prog));
+const texObj=gl.createTexture(); gl.bindTexture(gl.TEXTURE_2D,texObj); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MIN_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.CLAMP_TO_EDGE); gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
+const loc=n=>gl.getUniformLocation(prog,n);
+const U={src:loc('src'),res:loc('res'),time:loc('time'),refractAmt:loc('refractAmt'),glassScale:loc('glassScale'),chroma:loc('chroma')};
+
+const controls={};
+['flow','vort','refract','glass','decay','chroma'].forEach(k=>controls[k]=document.getElementById(k));
+const displays={flow:'flowV',vort:'vortV',refract:'refractV',glass:'glassV',decay:'decayV',chroma:'chromaV'};
+for(const [k,id2] of Object.entries(displays)) controls[k].addEventListener('input',()=>document.getElementById(id2).value=controls[k].value);
+
+function resize(){
+  const dpr=Math.min(devicePixelRatio||1,2), ww=Math.floor(innerWidth*dpr),hh=Math.floor(innerHeight*dpr);
+  if(canvas.width!==ww||canvas.height!==hh){canvas.width=ww;canvas.height=hh;canvas.style.width=innerWidth+'px';canvas.style.height=innerHeight+'px';gl.viewport(0,0,ww,hh);}
+  const aspect=innerWidth/innerHeight;
+  H=96; W=Math.max(112,Math.min(208,Math.round(H*aspect)));
+  allocFluid();
+  seed();
+}
+function seed(){
+  for(let k=0;k<8;k++){
+    const x=.22+Math.random()*.56,y=.24+Math.random()*.54;
+    splat(x,y,(Math.random()-.5)*.025,(Math.random()-.5)*.025,.75+Math.random()*.7,7+Math.random()*7);
+  }
+}
+resize(); addEventListener('resize',resize);
+
+let pointer=false, lastX=.5,lastY=.5;
+function pointerPos(e){const r=canvas.getBoundingClientRect();return [(e.clientX-r.left)/r.width,(e.clientY-r.top)/r.height];}
+canvas.addEventListener('pointerdown',e=>{pointer=true;canvas.setPointerCapture(e.pointerId);[lastX,lastY]=pointerPos(e);splat(lastX,lastY,0,0,1.4,10);});
+canvas.addEventListener('pointermove',e=>{if(!pointer)return;const [x,y]=pointerPos(e),dx=x-lastX,dy=y-lastY;splat(x,y,dx,dy,1.05,9);lastX=x;lastY=y;});
+canvas.addEventListener('pointerup',()=>pointer=false); canvas.addEventListener('pointercancel',()=>pointer=false);
+
+let paused=false;
+document.getElementById('toggle').onclick=e=>{paused=!paused;e.currentTarget.textContent=paused?'Resume':'Pause';};
+document.getElementById('clear').onclick=()=>{u.fill(0);v.fill(0);dye.fill(0);};
+document.getElementById('burst').onclick=()=>{
+  const cx=.5+(Math.random()-.5)*.14,cy=.52+(Math.random()-.5)*.14;
+  for(let a=0;a<Math.PI*2;a+=Math.PI/7){splat(cx+Math.cos(a)*.06,cy+Math.sin(a)*.06,Math.cos(a)*.045,Math.sin(a)*.045,1.4,11);}
+};
+
+let last=performance.now(), fpsT=last, frames=0;
+function frame(now){
+  const dt=Math.min(.035,(now-last)/1000); last=now;
+  if(!paused){
+    stepFluid(dt);
+    // Gentle perpetual plume so it never goes completely static.
+    if(Math.random()<.10) splat(.5+Math.sin(now*.00031)*.08,.83,Math.sin(now*.0007)*.002,-.006,.12,5);
+  }
+  renderFluid(now);
+  gl.useProgram(prog); gl.activeTexture(gl.TEXTURE0); gl.bindTexture(gl.TEXTURE_2D,texObj);
+  gl.pixelStorei(gl.UNPACK_FLIP_Y_WEBGL,true);
+  gl.texImage2D(gl.TEXTURE_2D,0,gl.RGBA,gl.RGBA,gl.UNSIGNED_BYTE,fluidCanvas);
+  gl.uniform1i(U.src,0); gl.uniform2f(U.res,canvas.width,canvas.height); gl.uniform1f(U.time,now*.001);
+  gl.uniform1f(U.refractAmt,+controls.refract.value); gl.uniform1f(U.glassScale,+controls.glass.value); gl.uniform1f(U.chroma,+controls.chroma.value);
+  gl.drawArrays(gl.TRIANGLES,0,3);
+  frames++; if(now-fpsT>700){document.getElementById('status').textContent=`${Math.round(frames*1000/(now-fpsT))} fps · ${W}×${H} fluid grid`;fpsT=now;frames=0;}
+  requestAnimationFrame(frame);
+}
+requestAnimationFrame(frame);
+})();
+</script>
+</body>
+</html>
